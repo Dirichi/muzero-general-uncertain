@@ -8,18 +8,13 @@ class EnsembleModel(torch.nn.Module):
     def __init__(self, models) -> None:
         super().__init__()
         self.models = models
-        self.selected_id = random.randint(0, len(self.models) - 1)
 
-    def forward(self, x, selected_id=None):
-        selected = selected_id if selected_id is not None else self.selected_id
+    def forward(self, x, selected_id):
         outputs = [model(x) for model in self.models]
         outputs_tensor = torch.cat(outputs, 0)
         variance = torch.var(outputs_tensor, 0, unbiased=False)
         uncertainty = torch.mean(variance)
-        return outputs[selected], uncertainty.item()
-
-    def reset_selected_model_id(self):
-        self.selected_id = random.randint(0, len(self.models) - 1)
+        return outputs[selected_id], uncertainty.item()
 
 
 class MuZeroNetwork:
