@@ -1,6 +1,7 @@
 import copy
 import time
 import math
+import random
 
 import numpy
 import ray
@@ -71,6 +72,7 @@ class Trainer:
         ):
             index_batch, batch = ray.get(next_batch)
             next_batch = replay_buffer.get_batch.remote()
+            dynamics_mask = random.sample(list(range(self.config.num_dynamics_models)), 1)[0]
             self.update_lr()
             (
                 priorities,
@@ -79,7 +81,7 @@ class Trainer:
                 reward_loss,
                 policy_loss,
                 consistency_loss,
-            ) = self.update_weights(batch)
+            ) = self.update_weights(batch, dynamics_mask)
 
             if self.config.PER:
                 # Save new priorities in the replay buffer (See https://arxiv.org/abs/1803.00933)
@@ -124,7 +126,7 @@ class Trainer:
                 ):
                     time.sleep(0.5)
 
-    def update_weights(self, batch):
+    def update_weights(self, batch, dynamic_mask):
         """
         Perform one training step.
         """
@@ -141,7 +143,6 @@ class Trainer:
 
         # Keep values as scalars for calculating the priorities for the prioritized replay
         target_value_scalar = numpy.array(target_value, dtype="float32")
-        all_priorities = []
 
         device = next(self.model.parameters()).device
         if self.config.PER:
@@ -169,41 +170,89 @@ class Trainer:
         # target_reward: batch, num_unroll_steps+1, 2*support_size+1
 
         ## Generate predictions
-        initial_value, initial_reward, initial_policy_logits, initial_hidden_state = self.model.initial_inference(
+        value, reward, policy_logits, hidden_state = self.model.initial_inference(
             observation_batch[:, 0].squeeze(1)
         )
-        dynamics_masks = list(range(self.config.num_dynamics_models))
-        total_loss = 0
-        total_value_loss, total_reward_loss, total_policy_loss, total_consistency_loss = (0, 0, 0, 0)
-        for dynamic_mask in dynamics_masks:
-            predictions = [(initial_value, initial_reward, initial_policy_logits, None)] # No next state prediction
-            priorities = numpy.zeros_like(target_value_scalar)
-            hidden_state = initial_hidden_state
-            for i in range(1, action_batch.shape[1]):
-                value, reward, policy_logits, hidden_state, uncertainty = self.model.recurrent_inference(
-                    hidden_state, action_batch[:, i], selected_ensemble_model_id=dynamic_mask
-                )
-                # Scale the gradient at the start of the dynamics function (See paper appendix Training)
-                hidden_state.register_hook(lambda grad: grad * 0.5)
-                predictions.append((value, reward, policy_logits, hidden_state))
-            # predictions: num_unroll_steps+1, 3, batch, 2*support_size+1 | 2*support_size+1 | 9 (according to the 2nd dim)
+        predictions = [(value, reward, policy_logits, None)] # No next state prediction
+        priorities = numpy.zeros_like(target_value_scalar)
+        for i in range(1, action_batch.shape[1]):
+            value, reward, policy_logits, hidden_state, uncertainty = self.model.recurrent_inference(
+                hidden_state, action_batch[:, i], selected_ensemble_model_id=dynamic_mask
+            )
+            # Scale the gradient at the start of the dynamics function (See paper appendix Training)
+            hidden_state.register_hook(lambda grad: grad * 0.5)
+            predictions.append((value, reward, policy_logits, hidden_state))
+        # predictions: num_unroll_steps+1, 3, batch, 2*support_size+1 | 2*support_size+1 | 9 (according to the 2nd dim)
 
-            ## Compute losses
-            value_loss, reward_loss, policy_loss, consistency_loss = (0, 0, 0, 0)
-            value, reward, policy_logits, _ = predictions[0]
-            # Ignore reward loss for the first batch step
-            current_value_loss, _, current_policy_loss, _ = self.loss_function(
+        ## Compute losses
+        value_loss, reward_loss, policy_loss, consistency_loss = (0, 0, 0, 0)
+        value, reward, policy_logits, _ = predictions[0]
+        # Ignore reward loss for the first batch step
+        current_value_loss, _, current_policy_loss, _ = self.loss_function(
+            value.squeeze(-1),
+            reward.squeeze(-1),
+            policy_logits,
+            None, # predicted hidden state
+            target_value[:, 0],
+            target_reward[:, 0],
+            target_policy[:, 0],
+            None, # target hidden state
+        )
+        value_loss += current_value_loss
+        policy_loss += current_policy_loss
+        # Compute priorities for the prioritized replay (See paper appendix Training)
+        pred_value_scalar = (
+            models.support_to_scalar(value, self.config.support_size)
+            .detach()
+            .cpu()
+            .numpy()
+            .squeeze()
+        )
+        priorities[:, 0] = (
+            numpy.abs(pred_value_scalar - target_value_scalar[:, 0])
+            ** self.config.PER_alpha
+        )
+
+        for i in range(1, len(predictions)):
+            target_hidden_state = self.model.representation(
+                observation_batch[:, i].squeeze(1)
+            ).detach()
+            value, reward, policy_logits, hidden_state = predictions[i]
+            (
+                current_value_loss,
+                current_reward_loss,
+                current_policy_loss,
+                current_consistency_loss
+            ) = self.loss_function(
                 value.squeeze(-1),
                 reward.squeeze(-1),
                 policy_logits,
-                None, # predicted hidden state
-                target_value[:, 0],
-                target_reward[:, 0],
-                target_policy[:, 0],
-                None, # target hidden state
+                hidden_state,
+                target_value[:, i],
+                target_reward[:, i],
+                target_policy[:, i],
+                target_hidden_state
             )
+
+            # Scale gradient by the number of unroll steps (See paper appendix Training)
+            current_value_loss.register_hook(
+                lambda grad: grad / gradient_scale_batch[:, i]
+            )
+            current_reward_loss.register_hook(
+                lambda grad: grad / gradient_scale_batch[:, i]
+            )
+            current_policy_loss.register_hook(
+                lambda grad: grad / gradient_scale_batch[:, i]
+            )
+            current_consistency_loss.register_hook(
+                lambda grad: grad / gradient_scale_batch[:, i]
+            )
+
             value_loss += current_value_loss
+            reward_loss += current_reward_loss
             policy_loss += current_policy_loss
+            consistency_loss += current_consistency_loss
+
             # Compute priorities for the prioritized replay (See paper appendix Training)
             pred_value_scalar = (
                 models.support_to_scalar(value, self.config.support_size)
@@ -212,97 +261,38 @@ class Trainer:
                 .numpy()
                 .squeeze()
             )
-            priorities[:, 0] = (
-                numpy.abs(pred_value_scalar - target_value_scalar[:, 0])
+            priorities[:, i] = (
+                numpy.abs(pred_value_scalar - target_value_scalar[:, i])
                 ** self.config.PER_alpha
             )
 
-            for i in range(1, len(predictions)):
-                target_hidden_state = self.model.representation(
-                    observation_batch[:, i].squeeze(1)
-                ).detach()
-                value, reward, policy_logits, hidden_state = predictions[i]
-                (
-                    current_value_loss,
-                    current_reward_loss,
-                    current_policy_loss,
-                    current_consistency_loss
-                ) = self.loss_function(
-                    value.squeeze(-1),
-                    reward.squeeze(-1),
-                    policy_logits,
-                    hidden_state,
-                    target_value[:, i],
-                    target_reward[:, i],
-                    target_policy[:, i],
-                    target_hidden_state
-                )
-
-                # Scale gradient by the number of unroll steps (See paper appendix Training)
-                current_value_loss.register_hook(
-                    lambda grad: grad / gradient_scale_batch[:, i]
-                )
-                current_reward_loss.register_hook(
-                    lambda grad: grad / gradient_scale_batch[:, i]
-                )
-                current_policy_loss.register_hook(
-                    lambda grad: grad / gradient_scale_batch[:, i]
-                )
-                current_consistency_loss.register_hook(
-                    lambda grad: grad / gradient_scale_batch[:, i]
-                )
-
-                value_loss += current_value_loss
-                reward_loss += current_reward_loss
-                policy_loss += current_policy_loss
-                consistency_loss += current_consistency_loss
-
-                # Compute priorities for the prioritized replay (See paper appendix Training)
-                pred_value_scalar = (
-                    models.support_to_scalar(value, self.config.support_size)
-                    .detach()
-                    .cpu()
-                    .numpy()
-                    .squeeze()
-                )
-                priorities[:, i] = (
-                    numpy.abs(pred_value_scalar - target_value_scalar[:, i])
-                    ** self.config.PER_alpha
-                )
-
-            # Scale the value loss, paper recommends by 0.25 (See paper appendix Reanalyze)
-            loss = (value_loss * self.config.value_loss_weight) + reward_loss + policy_loss + (consistency_loss * self.config.consistency_loss_weight)
-            if self.config.PER:
-                # Correct PER bias by using importance-sampling (IS) weights
-                loss *= weight_batch
-            # Mean over batch dimension (pseudocode do a sum)
-            loss = loss.mean()
-            total_loss += loss
-            total_value_loss += value_loss
-            total_reward_loss += reward_loss
-            total_policy_loss += policy_loss
-            total_consistency_loss += consistency_loss
-            all_priorities.append(priorities)
+        # Scale the value loss, paper recommends by 0.25 (See paper appendix Reanalyze)
+        loss = (value_loss * self.config.value_loss_weight) + reward_loss + policy_loss + (consistency_loss * self.config.consistency_loss_weight)
+        if self.config.PER:
+            # Correct PER bias by using importance-sampling (IS) weights
+            loss *= weight_batch
+        # Mean over batch dimension (pseudocode do a sum)
+        loss = loss.mean()
 
         if self.config.diversity_loss_weight > 0:
             dynamics_models = self.model.dynamics_encoded_state_network.models
             diversity_loss = self.theil_index_loss(dynamics_models) * self.config.diversity_loss_weight
-            total_loss += diversity_loss
+            loss += diversity_loss
 
         # Optimize
         self.optimizer.zero_grad()
-        total_loss.backward()
+        loss.backward()
         self.optimizer.step()
         self.training_step += 1
 
         return (
-            numpy.mean(all_priorities, axis=0),
+            priorities,
             # For log purpose
-            total_loss.item(),
-            total_value_loss.mean().item(),
-            total_reward_loss.mean().item(),
-            total_policy_loss.mean().item(),
-            total_consistency_loss.mean().item(),
+            loss.item(),
+            value.mean().item(),
+            reward_loss.mean().item(),
+            policy_loss.mean().item(),
+            consistency_loss.mean().item(),
         )
 
     def update_lr(self):
