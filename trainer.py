@@ -268,16 +268,16 @@ class Trainer:
 
         # Scale the value loss, paper recommends by 0.25 (See paper appendix Reanalyze)
         loss = (value_loss * self.config.value_loss_weight) + reward_loss + policy_loss + (consistency_loss * self.config.consistency_loss_weight)
+        if self.config.diversity_loss_weight > 0:
+            dynamics_models = self.model.dynamics_encoded_state_network.models
+            diversity_loss = self.theil_index_loss(dynamics_models) * self.config.diversity_loss_weight
+            loss += diversity_loss
+
         if self.config.PER:
             # Correct PER bias by using importance-sampling (IS) weights
             loss *= weight_batch
         # Mean over batch dimension (pseudocode do a sum)
         loss = loss.mean()
-
-        if self.config.diversity_loss_weight > 0:
-            dynamics_models = self.model.dynamics_encoded_state_network.models
-            diversity_loss = self.theil_index_loss(dynamics_models) * self.config.diversity_loss_weight
-            loss += diversity_loss
 
         # Optimize
         self.optimizer.zero_grad()
