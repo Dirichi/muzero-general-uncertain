@@ -289,7 +289,7 @@ class Trainer:
             priorities,
             # For log purpose
             loss.item(),
-            value.mean().item(),
+            value_loss.mean().item(),
             reward_loss.mean().item(),
             policy_loss.mean().item(),
             consistency_loss.mean().item(),
