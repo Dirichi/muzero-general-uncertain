@@ -54,7 +54,7 @@ class DiagnoseModel:
                 virtual_to_play = self.config.players[0]
 
             # Generate new root
-            value, reward, policy_logits, hidden_state = self.model.recurrent_inference(
+            value, reward, policy_logits, hidden_state, uncertainty = self.model.recurrent_inference(
                 root.hidden_state,
                 torch.tensor([[action]]).to(root.hidden_state.device),
                 dynamics_model_id

@@ -161,21 +161,26 @@ class MuZeroFullyConnectedNetwork(AbstractNetwork):
         action_one_hot.scatter_(1, action.long(), 1.0)
         x = torch.cat((encoded_state, action_one_hot), dim=1)
 
-        dynamics_model = self.dynamics_models[dynamics_model_id]
-        next_encoded_state = dynamics_model(x)
+        predicted_states = [model(x) for model in self.dynamics_models]
+        predicted_states = [self.normalize_encoded_state(encoded_state) for encoded_state in predicted_states]
+        variance = torch.var(torch.cat(predicted_states, 0), 0, unbiased=False)
+        uncertainty = torch.mean(variance)
+        next_encoded_state = predicted_states[dynamics_model_id]
 
         reward = self.dynamics_reward_network(next_encoded_state)
 
-        # Scale encoded state between [0, 1] (See paper appendix Training)
-        min_next_encoded_state = next_encoded_state.min(1, keepdim=True)[0]
-        max_next_encoded_state = next_encoded_state.max(1, keepdim=True)[0]
-        scale_next_encoded_state = max_next_encoded_state - min_next_encoded_state
-        scale_next_encoded_state[scale_next_encoded_state < 1e-5] += 1e-5
-        next_encoded_state_normalized = (
-            next_encoded_state - min_next_encoded_state
-        ) / scale_next_encoded_state
+        return next_encoded_state, reward, uncertainty
 
-        return next_encoded_state_normalized, reward
+    def normalize_encoded_state(self, encoded_state):
+        # Scale encoded state between [0, 1] (See paper appendix Training)
+        min_encoded_state = encoded_state.min(1, keepdim=True)[0]
+        max_encoded_state = encoded_state.max(1, keepdim=True)[0]
+        scale_encoded_state = max_encoded_state - min_encoded_state
+        scale_encoded_state[scale_encoded_state < 1e-5] += 1e-5
+        encoded_state_normalized = (
+            encoded_state - min_encoded_state
+        ) / scale_encoded_state
+        return encoded_state_normalized
 
     def initial_inference(self, observation):
         encoded_state = self.representation(observation)
@@ -198,9 +203,9 @@ class MuZeroFullyConnectedNetwork(AbstractNetwork):
         )
 
     def recurrent_inference(self, encoded_state, action, dynamics_model_id):
-        next_encoded_state, reward = self.dynamics(encoded_state, action, dynamics_model_id)
+        next_encoded_state, reward, uncertainty = self.dynamics(encoded_state, action, dynamics_model_id)
         policy_logits, value = self.prediction(next_encoded_state)
-        return value, reward, policy_logits, next_encoded_state
+        return value, reward, policy_logits, next_encoded_state, uncertainty
 
 
 ###### End Fully Connected #######
@@ -628,7 +633,7 @@ class MuZeroResidualNetwork(AbstractNetwork):
     def recurrent_inference(self, encoded_state, action, dynamics_model_id):
         next_encoded_state, reward = self.dynamics(encoded_state, action)
         policy_logits, value = self.prediction(next_encoded_state)
-        return value, reward, policy_logits, next_encoded_state
+        return value, reward, policy_logits, next_encoded_state, 0 # 0 = No uncertainty
 
 
 ########### End ResNet ###########
