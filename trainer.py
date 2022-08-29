@@ -150,6 +150,8 @@ class Trainer:
         avg_loss = total_loss * (1. / len(shuffled_ids))
         avg_loss = avg_loss.mean()
 
+        diversity_loss = torch.tensor(0.)
+
         # Conditionally add in diversity loss
         if self.config.diversity_loss_weight > 0:
             models = [self.model.ordered_dynamics_models[id] for id in shuffled_ids]
