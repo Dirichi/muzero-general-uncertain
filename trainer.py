@@ -71,7 +71,6 @@ class Trainer:
         ):
             index_batch, batch = ray.get(next_batch)
             next_batch = replay_buffer.get_batch.remote()
-            dynamics_model_id = random.sample(self.config.dynamics_ids, 1)[0]
             self.update_lr()
             (
                 priorities,
@@ -80,7 +79,7 @@ class Trainer:
                 reward_loss,
                 policy_loss,
                 consistency_loss
-            ) = self.update_weights(batch, dynamics_model_id)
+            ) = self.batch_update_weights(batch)
 
             if self.config.PER:
                 # Save new priorities in the replay buffer (See https://arxiv.org/abs/1803.00933)
@@ -124,6 +123,42 @@ class Trainer:
                     and not ray.get(shared_storage.get_info.remote("terminate"))
                 ):
                     time.sleep(0.5)
+
+    def batch_update_weights(self, batch):
+        # udpate weights for all models in the dynamics ensemble
+        shuffled_ids = random.sample(self.config.dynamics_ids, len(self.config.dynamics_ids))
+        total_loss = 0
+        total_value_loss = 0
+        total_reward_loss = 0
+        total_policy_loss = 0
+        total_consistency_loss = 0
+        all_priorities = []
+        for dynamics_model_id in shuffled_ids:
+            (priorities, loss, value_loss, reward_loss, policy_loss, consistency_loss) = self.update_weights(batch, dynamics_model_id)
+            all_priorities.append(priorities)
+            total_loss += loss
+            total_value_loss += value_loss
+            total_reward_loss += reward_loss
+            total_policy_loss += policy_loss
+            total_consistency_loss += consistency_loss
+
+        # Optimize
+        total_loss = total_loss.mean()
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        self.optimizer.step()
+        self.training_step += 1
+
+        return (
+            random.sample(all_priorities, 1)[0], # HACK
+            # For logging purposes
+            total_loss.item(),
+            total_value_loss.item(),
+            total_reward_loss.item(),
+            total_policy_loss.item(),
+            total_consistency_loss.item(),
+        )
+
 
     def update_weights(self, batch, dynamics_model_id):
         """
@@ -175,7 +210,7 @@ class Trainer:
         )
         predictions = [(value, reward, policy_logits, None)]
         for i in range(1, action_batch.shape[1]):
-            value, reward, policy_logits, hidden_state = self.model.recurrent_inference(
+            value, reward, policy_logits, hidden_state, uncertainty = self.model.recurrent_inference(
                 hidden_state, action_batch[:, i], dynamics_model_id
             )
             # Scale the gradient at the start of the dynamics function (See paper appendix Training)
@@ -270,19 +305,10 @@ class Trainer:
         if self.config.PER:
             # Correct PER bias by using importance-sampling (IS) weights
             loss *= weight_batch
-        # Mean over batch dimension (pseudocode do a sum)
-        loss = loss.mean()
-
-        # Optimize
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-        self.training_step += 1
 
         return (
             priorities,
-            # For log purpose
-            loss.item(),
+            loss,
             value_loss.mean().item(),
             reward_loss.mean().item(),
             policy_loss.mean().item(),
