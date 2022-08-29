@@ -192,6 +192,8 @@ class MuZeroFullyConnectedNetwork(AbstractNetwork):
         next_5 = self.dynamics_5(x)
         nexts = [next_1, next_2, next_3, next_4, next_5]
         next_encoded_state = nexts[dynamics_model_id]
+        variance = torch.var(torch.cat(nexts, 0), 0, unbiased=False)
+        uncertainty = torch.mean(variance)
 
         reward = self.dynamics_reward_network(next_encoded_state)
 
@@ -204,7 +206,7 @@ class MuZeroFullyConnectedNetwork(AbstractNetwork):
             next_encoded_state - min_next_encoded_state
         ) / scale_next_encoded_state
 
-        return next_encoded_state_normalized, reward
+        return next_encoded_state_normalized, reward, uncertainty.item()
 
     def initial_inference(self, observation):
         encoded_state = self.representation(observation)
@@ -227,9 +229,9 @@ class MuZeroFullyConnectedNetwork(AbstractNetwork):
         )
 
     def recurrent_inference(self, encoded_state, action, dynamics_model_id):
-        next_encoded_state, reward = self.dynamics(encoded_state, action, dynamics_model_id)
+        next_encoded_state, reward, uncertainty = self.dynamics(encoded_state, action, dynamics_model_id)
         policy_logits, value = self.prediction(next_encoded_state)
-        return value, reward, policy_logits, next_encoded_state
+        return value, reward, policy_logits, next_encoded_state, uncertainty
 
 
 ###### End Fully Connected #######
@@ -633,7 +635,7 @@ class MuZeroResidualNetwork(AbstractNetwork):
         next_encoded_state_normalized = (
             next_encoded_state - min_next_encoded_state
         ) / scale_next_encoded_state
-        return next_encoded_state_normalized, reward
+        return next_encoded_state_normalized, reward, 0 # 0 means no variance
 
     def initial_inference(self, observation):
         encoded_state = self.representation(observation)
@@ -657,7 +659,7 @@ class MuZeroResidualNetwork(AbstractNetwork):
     def recurrent_inference(self, encoded_state, action, dynamics_model_id):
         next_encoded_state, reward = self.dynamics(encoded_state, action)
         policy_logits, value = self.prediction(next_encoded_state)
-        return value, reward, policy_logits, next_encoded_state
+        return value, reward, policy_logits, next_encoded_state, 0 # 0 means no uncertainty
 
 
 ########### End ResNet ###########

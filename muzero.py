@@ -110,9 +110,11 @@ class MuZero:
             "value_loss": 0,
             "reward_loss": 0,
             "policy_loss": 0,
+            "consistency_loss": 0,
             "num_played_games": 0,
             "num_played_steps": 0,
             "num_reanalysed_games": 0,
+            "uncertainty": 0,
             "terminate": False,
         }
         self.replay_buffer = {}
@@ -259,9 +261,11 @@ class MuZero:
             "value_loss",
             "reward_loss",
             "policy_loss",
+            "consistency_loss",
             "num_played_games",
             "num_played_steps",
             "num_reanalysed_games",
+            "uncertainty"
         ]
         info = ray.get(self.shared_storage_worker.get_info.remote(keys))
         try:
@@ -320,6 +324,8 @@ class MuZero:
                 writer.add_scalar("3.Loss/Value_loss", info["value_loss"], counter)
                 writer.add_scalar("3.Loss/Reward_loss", info["reward_loss"], counter)
                 writer.add_scalar("3.Loss/Policy_loss", info["policy_loss"], counter)
+                writer.add_scalar("3.Loss/Consistency_Loss", info["consistency_loss"], counter)
+                writer.add_scalar("4.Uncertainty/Average_uncertainty", info["uncertainty"], counter)
                 print(
                     f'Last test reward: {info["total_reward"]:.2f}. Training step: {info["training_step"]}/{self.config.training_steps}. Played games: {info["num_played_games"]}. Loss: {info["total_loss"]:.2f}',
                     end="\r",
