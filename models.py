@@ -142,14 +142,7 @@ class MuZeroFullyConnectedNetwork(AbstractNetwork):
             observation.view(observation.shape[0], -1)
         )
         # Scale encoded state between [0, 1] (See appendix paper Training)
-        min_encoded_state = encoded_state.min(1, keepdim=True)[0]
-        max_encoded_state = encoded_state.max(1, keepdim=True)[0]
-        scale_encoded_state = max_encoded_state - min_encoded_state
-        scale_encoded_state[scale_encoded_state < 1e-5] += 1e-5
-        encoded_state_normalized = (
-            encoded_state - min_encoded_state
-        ) / scale_encoded_state
-        return encoded_state_normalized
+        return self.normalize_encoded_state(encoded_state)
 
     def dynamics(self, encoded_state, action, dynamics_model_id):
         # Stack encoded_state with a game specific one hot encoded action (See paper appendix Network Architecture)
@@ -162,14 +155,13 @@ class MuZeroFullyConnectedNetwork(AbstractNetwork):
         x = torch.cat((encoded_state, action_one_hot), dim=1)
 
         predicted_states = [model(x) for model in self.dynamics_models]
-        predicted_states = [self.normalize_encoded_state(encoded_state) for encoded_state in predicted_states]
+        next_encoded_state = predicted_states[dynamics_model_id]
+        reward = self.dynamics_reward_network(next_encoded_state)
         variance = torch.var(torch.cat(predicted_states, 0), 0, unbiased=False)
         uncertainty = torch.mean(variance)
-        next_encoded_state = predicted_states[dynamics_model_id]
 
-        reward = self.dynamics_reward_network(next_encoded_state)
 
-        return next_encoded_state, reward, uncertainty
+        return self.normalize_encoded_state(next_encoded_state), reward, uncertainty
 
     def normalize_encoded_state(self, encoded_state):
         # Scale encoded state between [0, 1] (See paper appendix Training)
