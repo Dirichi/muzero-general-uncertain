@@ -21,7 +21,11 @@ class MuZeroConfig:
         self.seed = 0  # Seed for numpy, torch and the game
         self.max_num_gpus = None  # Fix the maximum number of GPUs to use. It's usually faster to use a single GPU (set it to 1) if it has enough memory. None will use every GPUs available
 
-
+        # Uncertainty
+        self.consistency_loss_weight = 0.5
+        self.intrinsic_reward_weight = 0.25
+        self.diversity_loss_weight = 1e-4
+        self.dynamics_ids = [0, 1, 2, 3, 4]
 
         ### Game
         self.observation_shape = (7, 7, 3)  # Dimensions of the game observation, must be 3D (channel, height, width). For a 1D array, please reshape it to (1, 1, length of array)
@@ -56,7 +60,7 @@ class MuZeroConfig:
         ### Network
         self.network = "fullyconnected"  # "resnet" / "fullyconnected"
         self.support_size = 10  # Value and reward are scaled (with almost sqrt) and encoded on a vector with a range of -support_size to support_size. Choose it so that support_size <= sqrt(max(abs(discounted reward)))
-        
+
         # Residual Network
         self.downsample = False  # Downsample observations before representation network, False / "CNN" (lighter) / "resnet" (See paper appendix Network Architecture)
         self.blocks = 1  # Number of blocks in the ResNet

@@ -16,6 +16,7 @@ class MuZeroConfig:
         self.seed = 0  # Seed for numpy, torch and the game
         self.max_num_gpus = None  # Fix the maximum number of GPUs to use. It's usually faster to use a single GPU (set it to 1) if it has enough memory. None will use every GPUs available
 
+        # Uncertainty
         self.consistency_loss_weight = 0.5
         self.intrinsic_reward_weight = 0.25
         self.diversity_loss_weight = 1e-4
