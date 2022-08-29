@@ -18,7 +18,7 @@ class MuZeroConfig:
 
         self.consistency_loss_weight = 0.5
         self.intrinsic_reward_weight = 0.25
-        self.diversity_loss_weight = 1.25
+        self.diversity_loss_weight = 1e-4
         self.dynamics_ids = [0, 1, 2, 3, 4]
 
         ### Game
