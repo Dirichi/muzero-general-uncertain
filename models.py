@@ -206,7 +206,7 @@ class MuZeroFullyConnectedNetwork(AbstractNetwork):
             next_encoded_state - min_next_encoded_state
         ) / scale_next_encoded_state
 
-        return next_encoded_state_normalized, reward, uncertainty.item()
+        return next_encoded_state_normalized, reward, uncertainty
 
     def initial_inference(self, observation):
         encoded_state = self.representation(observation)
