@@ -153,10 +153,10 @@ class Trainer:
             random.sample(all_priorities, 1)[0], # HACK
             # For logging purposes
             total_loss.item(),
-            total_value_loss.item(),
-            total_reward_loss.item(),
-            total_policy_loss.item(),
-            total_consistency_loss.item(),
+            total_value_loss,
+            total_reward_loss,
+            total_policy_loss,
+            total_consistency_loss,
         )
 
 
