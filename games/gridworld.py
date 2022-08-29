@@ -4,6 +4,7 @@ import pathlib
 import gym
 import numpy
 import torch
+from gym.core import ObservationWrapper
 
 from .abstract_game import AbstractGame
 
@@ -136,6 +137,19 @@ class MuZeroConfig:
         else:
             return 0.25
 
+# Temporary addition until issue with gym minigrid is fixed
+class ImgObsWrapper(ObservationWrapper):
+    """
+    Use the image as the only observation output, no language/mission.
+    """
+
+    def __init__(self, env):
+        super().__init__(env, new_step_api=env.new_step_api)
+        self.observation_space = env.observation_space.spaces["image"]
+
+    def observation(self, obs):
+        return obs["image"]
+
 
 class Game(AbstractGame):
     """
@@ -144,7 +158,9 @@ class Game(AbstractGame):
 
     def __init__(self, seed=None):
         self.env = gym.make("MiniGrid-Empty-Random-6x6-v0")
-        self.env = gym_minigrid.wrappers.ImgObsWrapper(self.env)
+        # Commenting out until issue with gym minigrid wrappers is fixed.
+        # self.env = gym_minigrid.wrappers.ImgObsWrapper(self.env)
+        self.env = ImgObsWrapper(self.env)
         if seed is not None:
             self.env.seed(seed)
 
