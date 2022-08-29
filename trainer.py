@@ -66,9 +66,7 @@ class Trainer:
 
         next_batch = replay_buffer.get_batch.remote()
         # Training loop
-        while self.training_step < self.config.training_steps and not ray.get(
-            shared_storage.get_info.remote("terminate")
-        ):
+        while self.training_step < self.config.training_steps and not ray.get(shared_storage.get_info.remote("terminate")):
             index_batch, batch = ray.get(next_batch)
             next_batch = replay_buffer.get_batch.remote()
             self.update_lr()
@@ -78,7 +76,8 @@ class Trainer:
                 value_loss,
                 reward_loss,
                 policy_loss,
-                consistency_loss
+                consistency_loss,
+                uncertainty,
             ) = self.batch_update_weights(batch)
 
             if self.config.PER:
@@ -106,6 +105,7 @@ class Trainer:
                     "reward_loss": reward_loss,
                     "policy_loss": policy_loss,
                     "consistency_loss": consistency_loss,
+                    "uncertainty": uncertainty
                 }
             )
 
@@ -132,31 +132,35 @@ class Trainer:
         total_reward_loss = 0
         total_policy_loss = 0
         total_consistency_loss = 0
+        total_uncertainty = 0
         all_priorities = []
         for dynamics_model_id in shuffled_ids:
-            (priorities, loss, value_loss, reward_loss, policy_loss, consistency_loss) = self.update_weights(batch, dynamics_model_id)
+            (priorities, loss, value_loss, reward_loss, policy_loss, consistency_loss, avg_uncertainty) = self.update_weights(batch, dynamics_model_id)
             all_priorities.append(priorities)
             total_loss += loss
             total_value_loss += value_loss
             total_reward_loss += reward_loss
             total_policy_loss += policy_loss
             total_consistency_loss += consistency_loss
+            total_uncertainty += avg_uncertainty
 
         # Optimize
-        total_loss = total_loss.mean()
+        avg_loss = total_loss * (1. / len(shuffled_ids))
+        avg_loss = avg_loss.mean()
         self.optimizer.zero_grad()
-        total_loss.backward()
+        avg_loss.backward()
         self.optimizer.step()
         self.training_step += 1
 
         return (
             random.sample(all_priorities, 1)[0], # HACK
             # For logging purposes
-            total_loss.item(),
-            total_value_loss,
-            total_reward_loss,
-            total_policy_loss,
-            total_consistency_loss,
+            avg_loss.item(),
+            total_value_loss * (1. / len(shuffled_ids)),
+            total_reward_loss * (1. / len(shuffled_ids)),
+            total_policy_loss * (1. / len(shuffled_ids)),
+            total_consistency_loss * (1. / len(shuffled_ids)),
+            total_uncertainty * (1. / len(shuffled_ids)),
         )
 
 
@@ -209,10 +213,12 @@ class Trainer:
             observation_batch[:, 0].squeeze(1)
         )
         predictions = [(value, reward, policy_logits, None)]
+        total_uncertainty = 0
         for i in range(1, action_batch.shape[1]):
             value, reward, policy_logits, hidden_state, uncertainty = self.model.recurrent_inference(
                 hidden_state, action_batch[:, i], dynamics_model_id
             )
+            total_uncertainty += uncertainty
             # Scale the gradient at the start of the dynamics function (See paper appendix Training)
             hidden_state.register_hook(lambda grad: grad * 0.5)
             predictions.append((value, reward, policy_logits, hidden_state))
@@ -306,6 +312,7 @@ class Trainer:
             # Correct PER bias by using importance-sampling (IS) weights
             loss *= weight_batch
 
+        average_uncertainty = total_uncertainty * (1. / (len(predictions) - 1))
         return (
             priorities,
             loss,
@@ -313,6 +320,7 @@ class Trainer:
             reward_loss.mean().item(),
             policy_loss.mean().item(),
             consistency_loss.mean().item(),
+            average_uncertainty,
         )
 
     def update_lr(self):
