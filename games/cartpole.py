@@ -17,7 +17,7 @@ class MuZeroConfig:
         self.max_num_gpus = None  # Fix the maximum number of GPUs to use. It's usually faster to use a single GPU (set it to 1) if it has enough memory. None will use every GPUs available
 
         self.consistency_loss_weight = 0.5
-        self.intrinsic_reward_weight = 0.2
+        self.intrinsic_reward_weight = 0.25
         self.dynamics_ids = [0, 1, 2, 3, 4]
 
         ### Game
