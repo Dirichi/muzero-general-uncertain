@@ -66,64 +66,66 @@ class Trainer:
 
         next_batch = replay_buffer.get_batch.remote()
         # Training loop
-        while self.training_step < self.config.training_steps and not ray.get(
-            shared_storage.get_info.remote("terminate")
-        ):
-            index_batch, batch = ray.get(next_batch)
-            next_batch = replay_buffer.get_batch.remote()
-            dynamics_model_id = random.sample(list(range(self.config.num_dynamics_models)), 1)[0]
-            self.update_lr()
-            (
-                priorities,
-                total_loss,
-                value_loss,
-                reward_loss,
-                policy_loss,
-                consistency_loss
-            ) = self.update_weights(batch, dynamics_model_id)
+        while self.training_step < self.config.training_steps and not ray.get(shared_storage.get_info.remote("terminate")):
+            dynamics_model_ids = list(range(self.config.num_dynamics_models))
+            selected_dynamics_model_ids = random.sample(dynamics_model_ids, self.config.num_dynamics_models_to_train)
+            # Train a number of dynamics models end-to-end
+            for dynamics_model_id in selected_dynamics_model_ids:
+                index_batch, batch = ray.get(next_batch)
+                next_batch = replay_buffer.get_batch.remote()
+                dynamics_model_id = random.sample(list(range(self.config.num_dynamics_models)), 1)[0]
+                self.update_lr()
+                (
+                    priorities,
+                    total_loss,
+                    value_loss,
+                    reward_loss,
+                    policy_loss,
+                    consistency_loss
+                ) = self.update_weights(batch, dynamics_model_id)
 
-            if self.config.PER:
-                # Save new priorities in the replay buffer (See https://arxiv.org/abs/1803.00933)
-                replay_buffer.update_priorities.remote(priorities, index_batch)
+                if self.config.PER:
+                    # Save new priorities in the replay buffer (See https://arxiv.org/abs/1803.00933)
+                    replay_buffer.update_priorities.remote(priorities, index_batch)
 
-            # Save to the shared storage
-            if self.training_step % self.config.checkpoint_interval == 0:
+                # Save to the shared storage
+                if self.training_step % self.config.checkpoint_interval == 0:
+                    shared_storage.set_info.remote(
+                        {
+                            "weights": copy.deepcopy(self.model.get_weights()),
+                            "optimizer_state": copy.deepcopy(
+                                models.dict_to_cpu(self.optimizer.state_dict())
+                            ),
+                        }
+                    )
+                    if self.config.save_model:
+                        shared_storage.save_checkpoint.remote()
                 shared_storage.set_info.remote(
                     {
-                        "weights": copy.deepcopy(self.model.get_weights()),
-                        "optimizer_state": copy.deepcopy(
-                            models.dict_to_cpu(self.optimizer.state_dict())
-                        ),
+                        "training_step": self.training_step,
+                        "lr": self.optimizer.param_groups[0]["lr"],
+                        "total_loss": total_loss,
+                        "value_loss": value_loss,
+                        "reward_loss": reward_loss,
+                        "policy_loss": policy_loss,
+                        "consistency_loss": consistency_loss,
                     }
                 )
-                if self.config.save_model:
-                    shared_storage.save_checkpoint.remote()
-            shared_storage.set_info.remote(
-                {
-                    "training_step": self.training_step,
-                    "lr": self.optimizer.param_groups[0]["lr"],
-                    "total_loss": total_loss,
-                    "value_loss": value_loss,
-                    "reward_loss": reward_loss,
-                    "policy_loss": policy_loss,
-                    "consistency_loss": consistency_loss,
-                }
-            )
 
-            # Managing the self-play / training ratio
-            if self.config.training_delay:
-                time.sleep(self.config.training_delay)
-            if self.config.ratio:
-                while (
-                    self.training_step
-                    / max(
-                        1, ray.get(shared_storage.get_info.remote("num_played_steps"))
-                    )
-                    > self.config.ratio
-                    and self.training_step < self.config.training_steps
-                    and not ray.get(shared_storage.get_info.remote("terminate"))
-                ):
-                    time.sleep(0.5)
+                # Managing the self-play / training ratio
+                if self.config.training_delay:
+                    time.sleep(self.config.training_delay)
+                if self.config.ratio:
+                    while (
+                        self.training_step
+                        / max(
+                            1, ray.get(shared_storage.get_info.remote("num_played_steps"))
+                        )
+                        > self.config.ratio
+                        and self.training_step < self.config.training_steps
+                        and not ray.get(shared_storage.get_info.remote("terminate"))
+                    ):
+                        time.sleep(0.5)
 
     def update_weights(self, batch, dynamics_model_id):
         """
@@ -175,7 +177,7 @@ class Trainer:
         )
         predictions = [(value, reward, policy_logits, None)]
         for i in range(1, action_batch.shape[1]):
-            value, reward, policy_logits, hidden_state = self.model.recurrent_inference(
+            value, reward, policy_logits, hidden_state, uncertainty = self.model.recurrent_inference(
                 hidden_state, action_batch[:, i], dynamics_model_id
             )
             # Scale the gradient at the start of the dynamics function (See paper appendix Training)
