@@ -77,6 +77,7 @@ class Trainer:
                 reward_loss,
                 policy_loss,
                 consistency_loss,
+                diversity_loss,
                 uncertainty,
             ) = self.batch_update_weights(batch)
 
@@ -105,7 +106,8 @@ class Trainer:
                     "reward_loss": reward_loss,
                     "policy_loss": policy_loss,
                     "consistency_loss": consistency_loss,
-                    "uncertainty": uncertainty
+                    "diversity_loss": diversity_loss,
+                    "uncertainty": uncertainty,
                 }
             )
 
@@ -168,6 +170,7 @@ class Trainer:
             total_reward_loss * (1. / len(shuffled_ids)),
             total_policy_loss * (1. / len(shuffled_ids)),
             total_consistency_loss * (1. / len(shuffled_ids)),
+            diversity_loss.item(),
             total_uncertainty * (1. / len(shuffled_ids)),
         )
 
