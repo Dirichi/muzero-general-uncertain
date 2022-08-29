@@ -263,6 +263,7 @@ class MuZero:
             "num_played_games",
             "num_played_steps",
             "num_reanalysed_games",
+            "uncertainty"
         ]
         info = ray.get(self.shared_storage_worker.get_info.remote(keys))
         try:
