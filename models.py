@@ -144,6 +144,13 @@ class MuZeroFullyConnectedNetwork(AbstractNetwork):
                 encoding_size,
             )
         )
+        self.ordered_dynamics_models = [
+            self.dynamics_1,
+            self.dynamics_2,
+            self.dynamics_3,
+            self.dynamics_4,
+            self.dynamics_5
+        ]
 
         self.dynamics_reward_network = torch.nn.DataParallel(
             mlp(encoding_size, fc_reward_layers, self.full_support_size)

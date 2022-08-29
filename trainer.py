@@ -77,6 +77,7 @@ class Trainer:
                 reward_loss,
                 policy_loss,
                 consistency_loss,
+                diversity_loss,
                 uncertainty,
             ) = self.batch_update_weights(batch)
 
@@ -105,7 +106,8 @@ class Trainer:
                     "reward_loss": reward_loss,
                     "policy_loss": policy_loss,
                     "consistency_loss": consistency_loss,
-                    "uncertainty": uncertainty
+                    "diversity_loss": diversity_loss,
+                    "uncertainty": uncertainty,
                 }
             )
 
@@ -147,6 +149,16 @@ class Trainer:
         # Optimize
         avg_loss = total_loss * (1. / len(shuffled_ids))
         avg_loss = avg_loss.mean()
+
+        diversity_loss = torch.tensor(0.)
+
+        # Conditionally add in diversity loss
+        if self.config.diversity_loss_weight > 0:
+            models = [self.model.ordered_dynamics_models[id] for id in shuffled_ids]
+            diversity_loss = self.theil_index_loss(models)
+            diversity_loss = self.config.diversity_loss_weight * diversity_loss
+            avg_loss += diversity_loss
+
         self.optimizer.zero_grad()
         avg_loss.backward()
         self.optimizer.step()
@@ -160,6 +172,7 @@ class Trainer:
             total_reward_loss * (1. / len(shuffled_ids)),
             total_policy_loss * (1. / len(shuffled_ids)),
             total_consistency_loss * (1. / len(shuffled_ids)),
+            diversity_loss.item(),
             total_uncertainty * (1. / len(shuffled_ids)),
         )
 
@@ -354,3 +367,23 @@ class Trainer:
         if hidden_state != None and target_hidden_state != None:
             consistency_loss = torch.square(hidden_state - target_hidden_state).flatten(start_dim=1).mean(1)
         return value_loss, reward_loss, policy_loss, consistency_loss
+
+    def theil_index_loss(self, models):
+        total_entropy = 0
+        num_layers = len(models[0].module)
+        for layer_idx in range(num_layers):
+            # Check to ignore layers without weights e.g. activation layers
+            if 'weight' in dir(models[0].module[layer_idx]):
+                layer_weights = [model.module[layer_idx].weight for model in models]
+                total_entropy += self.layer_entropy(layer_weights)
+        # Return a negative value because we want to increase entropy and encourage diveristy
+        return -total_entropy / num_layers
+
+    def layer_entropy(self, layer_weights):
+        weight_norms = [torch.norm(layer_weight) for layer_weight in layer_weights]
+        mean_norm = sum(weight_norms) / len(weight_norms)
+        layer_weight_entropies = [self.entropy(norm / mean_norm) for norm in weight_norms]
+        return sum(layer_weight_entropies) / len(layer_weight_entropies)
+
+    def entropy(self, value: float) -> float:
+        return value * torch.log(value)
