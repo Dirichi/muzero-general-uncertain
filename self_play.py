@@ -349,6 +349,7 @@ class MCTS:
                 dynamics_model_id
             )
             value = models.support_to_scalar(value, self.config.support_size).item()
+            uncertainty = min(1, uncertainty)
             reward = models.support_to_scalar(reward, self.config.support_size).item()
             augmented_reward = reward * (1 - self.config.intrinsic_reward_weight)
             augmented_reward += (uncertainty * self.config.intrinsic_reward_weight)
