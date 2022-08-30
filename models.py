@@ -201,7 +201,7 @@ class MuZeroFullyConnectedNetwork(AbstractNetwork):
         next_encoded_state = nexts[dynamics_model_id]
         variance = torch.var(torch.cat(nexts, 0), 0, unbiased=False)
         uncertainty = torch.mean(variance)
-        uncertainty = torch.sigmoid(uncertainty) - 0.5 # Scale between 0 and 1
+        uncertainty = torch.sigmoid(uncertainty) # Scale between 0.5 and 1
 
         reward = self.dynamics_reward_network(next_encoded_state)
 
