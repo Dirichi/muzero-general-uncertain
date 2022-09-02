@@ -26,7 +26,7 @@ class MuZeroConfig:
         self.consistency_loss_weight = 0.5
         self.intrinsic_reward_weight = 0.25
         self.diversity_loss_weight = 1e-4
-        self.dynamics_ids = [0, 1, 2, 3, 4]
+        self.num_dynamics_models = 5
 
         ### Game
         self.observation_shape = (7, 7, 3)  # Dimensions of the game observation, must be 3D (channel, height, width). For a 1D array, please reshape it to (1, 1, length of array)
