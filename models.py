@@ -91,12 +91,12 @@ class MuZeroFullyConnectedNetwork(AbstractNetwork):
         fc_representation_layers,
         fc_dynamics_layers,
         support_size,
-        dynamics_ids,
+        num_dynamics_models,
     ):
         super().__init__()
         self.action_space_size = action_space_size
         self.full_support_size = 2 * support_size + 1
-        self.dynamics_ids = dynamics_ids
+        self.num_dynamics_models = num_dynamics_models
 
         self.representation_network = torch.nn.DataParallel(
             mlp(
