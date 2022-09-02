@@ -48,6 +48,7 @@ class SelfPlay:
                     False,
                     "self",
                     0,
+                    test_mode
                 )
 
                 replay_buffer.save_game.remote(game_history, shared_storage)
@@ -60,6 +61,7 @@ class SelfPlay:
                     False,
                     "self" if len(self.config.players) == 1 else self.config.opponent,
                     self.config.muzero_player,
+                    test_mode,
                 )
 
                 # Save to the shared storage
