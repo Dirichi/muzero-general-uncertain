@@ -109,7 +109,7 @@ class SelfPlay:
         self.close_game()
 
     def play_game(
-        self, temperature, temperature_threshold, render, opponent, muzero_player
+        self, temperature, temperature_threshold, render, opponent, muzero_player, test_mode=False
     ):
         """
         Play one game with actions based on the Monte Carlo tree search at each moves.
@@ -122,7 +122,7 @@ class SelfPlay:
         game_history.to_play_history.append(self.game.to_play())
 
         # Initialize dynamics mask at start of the game
-        dynamics_model_id = random.sample(self.config.dynamics_ids, 1)[0]
+        dynamics_model_id = numpy.random.sample(list(range(self.config.num_dynamics_models)), 1)[0]
 
         done = False
 
@@ -143,6 +143,7 @@ class SelfPlay:
                     -1, self.config.stacked_observations, len(self.config.action_space)
                 )
 
+                use_intrinsic_reward = not test_mode
                 # Choose the action
                 if opponent == "self" or muzero_player == self.game.to_play():
                     root, mcts_info = MCTS(self.config).run(
@@ -152,6 +153,7 @@ class SelfPlay:
                         self.game.legal_actions(),
                         self.game.to_play(),
                         True,
+                        use_intrinsic_reward
                     )
                     action = self.select_action(
                         root,
@@ -168,7 +170,7 @@ class SelfPlay:
                         )
                 else:
                     action, root = self.select_opponent_action(
-                        opponent, stacked_observations
+                        opponent, stacked_observations, dynamics_model_id, use_intrinsic_reward
                     )
 
                 observation, reward, done = self.game.step(action)
@@ -190,7 +192,7 @@ class SelfPlay:
     def close_game(self):
         self.game.close()
 
-    def select_opponent_action(self, opponent, stacked_observations, dynamics_model_id):
+    def select_opponent_action(self, opponent, stacked_observations, dynamics_model_id, use_intrinsic_reward):
         """
         Select opponent action for evaluating MuZero level.
         """
@@ -202,6 +204,7 @@ class SelfPlay:
                 self.game.legal_actions(),
                 self.game.to_play(),
                 True,
+                use_intrinsic_reward
             )
             print(f'Tree depth: {mcts_info["max_tree_depth"]}')
             print(f"Root value for player {self.game.to_play()}: {root.value():.2f}")
@@ -271,6 +274,7 @@ class MCTS:
         legal_actions,
         to_play,
         add_exploration_noise,
+        add_intrinsic_reward,
         override_root_with=None,
     ):
         """
@@ -350,12 +354,13 @@ class MCTS:
             )
             value = models.support_to_scalar(value, self.config.support_size).item()
             reward = models.support_to_scalar(reward, self.config.support_size).item()
-            augmented_reward = reward * (1 - self.config.intrinsic_reward_weight)
-            augmented_reward += (uncertainty * self.config.intrinsic_reward_weight)
+            if add_intrinsic_reward:
+                reward = reward * (1 - self.config.intrinsic_reward_weight)
+                reward += (uncertainty * self.config.intrinsic_reward_weight)
             node.expand(
                 self.config.action_space,
                 virtual_to_play,
-                augmented_reward,
+                reward,
                 policy_logits,
                 hidden_state,
             )

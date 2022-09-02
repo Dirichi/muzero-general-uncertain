@@ -18,7 +18,7 @@ class MuZeroNetwork:
                 config.fc_representation_layers,
                 config.fc_dynamics_layers,
                 config.support_size,
-                config.dynamics_ids,
+                config.num_dynamics_models,
             )
         elif config.network == "resnet":
             return MuZeroResidualNetwork(
@@ -109,48 +109,16 @@ class MuZeroFullyConnectedNetwork(AbstractNetwork):
                 encoding_size,
             )
         )
-        self.dynamics_1 = torch.nn.DataParallel(
-            mlp(
-                encoding_size + self.action_space_size,
-                fc_dynamics_layers,
-                encoding_size,
+        self.dynamics_models = torch.nn.ModuleList()
+        for _ in range(self.num_dynamics_models):
+            model = torch.nn.DataParallel(
+                mlp(
+                    encoding_size + self.action_space_size,
+                    fc_dynamics_layers,
+                    encoding_size,
+                )
             )
-        )
-        self.dynamics_2 = torch.nn.DataParallel(
-            mlp(
-                encoding_size + self.action_space_size,
-                fc_dynamics_layers,
-                encoding_size,
-            )
-        )
-        self.dynamics_3 = torch.nn.DataParallel(
-            mlp(
-                encoding_size + self.action_space_size,
-                fc_dynamics_layers,
-                encoding_size,
-            )
-        )
-        self.dynamics_4 = torch.nn.DataParallel(
-            mlp(
-                encoding_size + self.action_space_size,
-                fc_dynamics_layers,
-                encoding_size,
-            )
-        )
-        self.dynamics_5 = torch.nn.DataParallel(
-            mlp(
-                encoding_size + self.action_space_size,
-                fc_dynamics_layers,
-                encoding_size,
-            )
-        )
-        self.ordered_dynamics_models = [
-            self.dynamics_1,
-            self.dynamics_2,
-            self.dynamics_3,
-            self.dynamics_4,
-            self.dynamics_5
-        ]
+            self.dynamics_models.append(model)
 
         self.dynamics_reward_network = torch.nn.DataParallel(
             mlp(encoding_size, fc_reward_layers, self.full_support_size)
@@ -192,14 +160,9 @@ class MuZeroFullyConnectedNetwork(AbstractNetwork):
         action_one_hot.scatter_(1, action.long(), 1.0)
         x = torch.cat((encoded_state, action_one_hot), dim=1)
 
-        next_1 = self.dynamics_1(x)
-        next_2 = self.dynamics_2(x)
-        next_3 = self.dynamics_3(x)
-        next_4 = self.dynamics_4(x)
-        next_5 = self.dynamics_5(x)
-        nexts = [next_1, next_2, next_3, next_4, next_5]
-        next_encoded_state = nexts[dynamics_model_id]
-        variance = torch.var(torch.cat(nexts, 0), 0, unbiased=False)
+        next_states = [model(x) for model in self.dynamics_models]
+        next_encoded_state = next_states[dynamics_model_id]
+        variance = torch.var(torch.stack(next_states, 0), 0, unbiased=False)
         uncertainty = torch.mean(variance)
         uncertainty = torch.sigmoid(uncertainty) # Scale between 0.5 and 1
 
