@@ -9,9 +9,9 @@ from gym.core import ObservationWrapper
 from .abstract_game import AbstractGame
 
 try:
-    import gym_minigrid
+    import minigrid
 except ModuleNotFoundError:
-    raise ModuleNotFoundError('Please run "pip install gym_minigrid"')
+    raise ModuleNotFoundError('Please run "pip install minigrid"')
 
 
 class MuZeroConfig:
@@ -159,10 +159,10 @@ class Game(AbstractGame):
 
     def __init__(self, seed=None):
         self.env = gym.make("MiniGrid-Empty-6x6-v0")
-        self.env = gym_minigrid.wrappers.ImgObsWrapper(self.env)
+        self.env = minigrid.wrappers.ImgObsWrapper(self.env)
         # self.env = ImgObsWrapper(self.env)
         if seed is not None:
-            self.env.seed(seed)
+            self.env.reset(seed=seed)
 
     def step(self, action):
         """
