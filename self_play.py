@@ -122,7 +122,7 @@ class SelfPlay:
         game_history.to_play_history.append(self.game.to_play())
 
         # Initialize dynamics mask at start of the game
-        numpy.random.seed(int(shared_storage.get_info.remote("training_step"))) # use training step as seed
+        numpy.random.seed(ray.get(shared_storage.get_info.remote("training_step"))) # use training step as seed
         dynamics_model_id = numpy.random.choice(self.config.num_dynamics_models, 1)[0]
 
         done = False
