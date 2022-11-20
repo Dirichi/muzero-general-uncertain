@@ -145,7 +145,7 @@ class SelfPlay:
                     -1, self.config.stacked_observations, len(self.config.action_space)
                 )
 
-                use_intrinsic_reward = not test_mode
+                use_intrinsic_reward = True
                 # Choose the action
                 if opponent == "self" or muzero_player == self.game.to_play():
                     root, mcts_info = MCTS(self.config).run(
