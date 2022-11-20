@@ -158,7 +158,7 @@ class Game(AbstractGame):
     """
 
     def __init__(self, seed=None):
-        self.env = gym.make("MiniGrid-Empty-Random-6x6-v0")
+        self.env = gym.make("MiniGrid-Empty-6x6-v0")
         # Commenting out until issue with gym minigrid wrappers is fixed.
         # self.env = gym_minigrid.wrappers.ImgObsWrapper(self.env)
         self.env = ImgObsWrapper(self.env)
