@@ -20,7 +20,6 @@ class SelfPlay:
         self.game = Game(seed)
 
         # Fix random generator seed
-        numpy.random.seed(seed)
         torch.manual_seed(seed)
 
         # Initialize the network
@@ -48,7 +47,7 @@ class SelfPlay:
                     False,
                     "self",
                     0,
-                    test_mode
+                    shared_storage
                 )
 
                 replay_buffer.save_game.remote(game_history, shared_storage)
@@ -61,7 +60,7 @@ class SelfPlay:
                     False,
                     "self" if len(self.config.players) == 1 else self.config.opponent,
                     self.config.muzero_player,
-                    test_mode,
+                    shared_storage
                 )
 
                 # Save to the shared storage
@@ -111,8 +110,7 @@ class SelfPlay:
         self.close_game()
 
     def play_game(
-        self, temperature, temperature_threshold, render, opponent, muzero_player, test_mode=False
-    ):
+        self, temperature, temperature_threshold, render, opponent, muzero_player, shared_storage):
         """
         Play one game with actions based on the Monte Carlo tree search at each moves.
         """
@@ -124,6 +122,7 @@ class SelfPlay:
         game_history.to_play_history.append(self.game.to_play())
 
         # Initialize dynamics mask at start of the game
+        numpy.random.seed(shared_storage.get_info.remote("training_step")) # use training step as seed
         dynamics_model_id = numpy.random.choice(self.config.num_dynamics_models, 1)[0]
 
         done = False
@@ -145,6 +144,9 @@ class SelfPlay:
                     -1, self.config.stacked_observations, len(self.config.action_space)
                 )
 
+                # use_intrinsic_reward =
+                # ray.get(shared_storage.get_info.remote("training_step")) <
+                # self.config.max_training_steps_with_uncertainty
                 use_intrinsic_reward = True
                 # Choose the action
                 if opponent == "self" or muzero_player == self.game.to_play():
