@@ -1,4 +1,6 @@
 gym[classic_control]
+gymnasium
+minigrid
 nevergrad
 numpy
 ray
