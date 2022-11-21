@@ -159,7 +159,7 @@ class Game(AbstractGame):
 
     def __init__(self, seed=None):
         self.env = gym.make("MiniGrid-Empty-6x6-v0")
-        self.env = ImgObsWrapper(self.env)
+        # self.env = ImgObsWrapper(self.env)
         if seed is not None:
             self.env.reset(seed=seed)
 
