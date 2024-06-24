@@ -128,7 +128,7 @@ class Trainer:
 
     def batch_update_weights(self, batch):
         # udpate weights for all models in the dynamics ensemble
-        shuffled_ids = random.sample(self.config.dynamics_ids, len(self.config.dynamics_ids))
+        model_ids = list(range(self.config.num_dynamics_models))
         total_loss = 0
         total_value_loss = 0
         total_reward_loss = 0
@@ -136,7 +136,7 @@ class Trainer:
         total_consistency_loss = 0
         total_uncertainty = 0
         all_priorities = []
-        for dynamics_model_id in shuffled_ids:
+        for dynamics_model_id in model_ids:
             (priorities, loss, value_loss, reward_loss, policy_loss, consistency_loss, avg_uncertainty) = self.update_weights(batch, dynamics_model_id)
             all_priorities.append(priorities)
             total_loss += loss
@@ -147,14 +147,14 @@ class Trainer:
             total_uncertainty += avg_uncertainty
 
         # Optimize
-        avg_loss = total_loss * (1. / len(shuffled_ids))
+        avg_loss = total_loss * (1. / self.config.num_dynamics_models)
         avg_loss = avg_loss.mean()
 
         diversity_loss = torch.tensor(0.)
 
         # Conditionally add in diversity loss
         if self.config.diversity_loss_weight > 0:
-            models = [self.model.ordered_dynamics_models[id] for id in shuffled_ids]
+            models = self.model.dynamics_models
             diversity_loss = self.theil_index_loss(models)
             diversity_loss = self.config.diversity_loss_weight * diversity_loss
             avg_loss += diversity_loss
@@ -168,12 +168,12 @@ class Trainer:
             random.sample(all_priorities, 1)[0], # HACK
             # For logging purposes
             avg_loss.item(),
-            total_value_loss * (1. / len(shuffled_ids)),
-            total_reward_loss * (1. / len(shuffled_ids)),
-            total_policy_loss * (1. / len(shuffled_ids)),
-            total_consistency_loss * (1. / len(shuffled_ids)),
+            total_value_loss * (1. / self.config.num_dynamics_models),
+            total_reward_loss * (1. / self.config.num_dynamics_models),
+            total_policy_loss * (1. / self.config.num_dynamics_models),
+            total_consistency_loss * (1. / self.config.num_dynamics_models),
             diversity_loss.item(),
-            total_uncertainty * (1. / len(shuffled_ids)),
+            total_uncertainty * (1. / self.config.num_dynamics_models),
         )
 
 

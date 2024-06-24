@@ -16,10 +16,13 @@ class MuZeroConfig:
         self.seed = 0  # Seed for numpy, torch and the game
         self.max_num_gpus = None  # Fix the maximum number of GPUs to use. It's usually faster to use a single GPU (set it to 1) if it has enough memory. None will use every GPUs available
 
+        # Uncertainty
         self.consistency_loss_weight = 0.5
         self.intrinsic_reward_weight = 0.25
         self.diversity_loss_weight = 1e-4
         self.dynamics_ids = [0, 1, 2, 3, 4]
+        self.num_dynamics_models = 5
+        self.max_training_steps_with_uncertainty = 400
 
         ### Game
         self.observation_shape = (1, 1, 4)  # Dimensions of the game observation, must be 3D (channel, height, width). For a 1D array, please reshape it to (1, 1, length of array)
